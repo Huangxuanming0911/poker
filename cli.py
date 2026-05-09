@@ -1,6 +1,16 @@
-from typing import List, Tuple, Optional
+from typing import List, Optional
 
-from engine import Game, Player, evaluate_best_hand, describe_hand_value
+from ai import BasicPokerAI, PokerAI
+from engine import ActionDecision, DecisionContext, Game, Player, describe_hand_value, evaluate_best_hand
+
+ACTION_ALIASES = {
+    "fold": {"fold", "f"},
+    "check": {"check", "c"},
+    "call": {"call", "ca"},
+    "raise-2x": {"raise-2x", "raise2", "r2", "2x"},
+    "raise-3x": {"raise-3x", "raise3", "r3", "3x"},
+    "all-in": {"all-in", "allin", "a"},
+}
 
 
 def format_cards(cards: List[str]) -> str:
@@ -31,45 +41,73 @@ def show_table(game: Game, reveal_all: bool = False, current_player: Optional[Pl
     print("===============\n")
 
 
-def parse_action(raw: str) -> Tuple[str, Optional[int]]:
+def parse_mode(raw: str) -> Optional[str]:
     raw = raw.strip().lower()
-    if raw in {"fold", "f"}:
-        return "fold", None
-    if raw in {"check", "c"}:
-        return "check", None
-    if raw in {"call", "ca"}:
-        return "call", None
-    if raw in {"all-in", "allin", "a"}:
-        return "all-in", None
-    if raw.startswith("bet "):
-        amount_str = raw[4:].strip()
-        if amount_str.isdigit():
-            return "bet", int(amount_str)
-    if raw.startswith("raise "):
-        amount_str = raw[6:].strip()
-        if amount_str.isdigit():
-            return "raise", int(amount_str)
-    return raw, None
+    if raw in {"1", "pvp"}:
+        return "pvp"
+    if raw in {"2", "pve", ""}:
+        return "pve"
+    return None
 
 
-def prompt_player_action(player: Player, options: List[str], call_amount: int, min_raise: int, highest_bet: int) -> Tuple[str, Optional[int]]:
+def describe_action(action: str, context: DecisionContext) -> str:
+    if action == "fold":
+        return "fold / 弃牌"
+    if action == "check":
+        return "check / 过牌"
+    if action == "call":
+        target = context.action_targets.get("call", context.player.current_bet)
+        return f"call / 跟注 {context.call_amount}，总注到 {target}"
+    if action == "raise-2x":
+        target = context.action_targets.get("raise-2x", context.highest_bet)
+        if context.street == "preflop" and context.highest_bet <= context.big_blind:
+            return f"raise-2x / 2.5BB 开池到 {target}"
+        if context.highest_bet == 0:
+            return f"raise-2x / 约 66% pot 下注到 {target}"
+        if context.street == "preflop":
+            return f"raise-2x / 约 2.2x 再加注到 {target}"
+        return f"raise-2x / 标准加注到 {target}"
+    if action == "raise-3x":
+        target = context.action_targets.get("raise-3x", context.highest_bet)
+        if context.street == "preflop" and context.highest_bet <= context.big_blind:
+            return f"raise-3x / 3.5BB 开池到 {target}"
+        if context.highest_bet == 0:
+            return f"raise-3x / 100% pot 下注到 {target}"
+        if context.street == "preflop":
+            return f"raise-3x / 约 3x 再加注到 {target}"
+        return f"raise-3x / 重加注到 {target}"
+    if action == "all-in":
+        target = context.action_targets.get("all-in", context.player.current_bet + context.player.stack)
+        return f"all-in / 全下到 {target}"
+    return action
+
+
+def parse_action_choice(raw: str, options: List[str]) -> Optional[str]:
+    raw = raw.strip().lower()
+    if raw.isdigit():
+        option_index = int(raw) - 1
+        if 0 <= option_index < len(options):
+            return options[option_index]
+
+    for action in options:
+        if raw == action or raw in ACTION_ALIASES.get(action, set()):
+            return action
+    return None
+
+
+def prompt_player_action(player: Player, context: DecisionContext) -> ActionDecision:
     print(f"{player.name} 的手牌: {' '.join(str(card) for card in player.hole_cards)}")
-    print(f"当前最高注: {highest_bet}, 你已下: {player.current_bet}, 需跟注: {call_amount}")
-    print(f"可用动作: {', '.join(options)}")
-    if "bet" in options:
-        print(f"请输入 bet X 来下注，最低 {min_raise}")
-    if "raise" in options:
-        print(f"请输入 raise X 来加注，最低加到 {highest_bet + min_raise}")
+    print(f"当前轮次: {context.street}  当前最高注: {context.highest_bet}, 你已下: {player.current_bet}, 需跟注: {context.call_amount}")
+    print("可用动作:")
+    for index, action in enumerate(context.available_actions, start=1):
+        print(f"{index}. {describe_action(action, context)}")
     while True:
         raw = input(f"{player.name} 请选择动作: ").strip()
-        action, amount = parse_action(raw)
-        if action not in options:
-            print("无效动作，请选择合法动作。")
+        action = parse_action_choice(raw, list(context.available_actions))
+        if action is None:
+            print("无效动作，请输入编号或动作别名。")
             continue
-        if action in {"bet", "raise"} and amount is None:
-            print("请输入正确的金额，例如 bet 100 或 raise 200。")
-            continue
-        return action, amount
+        return ActionDecision(action)
 
 
 def summarize_hand(game: Game, results: dict) -> None:
@@ -92,17 +130,36 @@ def summarize_hand(game: Game, results: dict) -> None:
 
 def run_game() -> None:
     print("欢迎来到德州扑克 CLI 小程序！")
-    names: List[str] = []
-    for index in range(2):
-        name = input(f"请输入玩家 {index + 1} 名称（默认 Player{index + 1}）: ").strip() or f"玩家{index + 1}"
-        names.append(name)
+    while True:
+        mode = parse_mode(input("请选择模式：1. PVP  2. PVE（默认 2）: "))
+        if mode is not None:
+            break
+        print("请输入 1/PVP 或 2/PVE。")
+
+    ai_players: dict[int, PokerAI] = {}
+    if mode == "pve":
+        human_name = input("请输入你的名称（默认 玩家1）: ").strip() or "玩家1"
+        ai_name = input("请输入 AI 名称（默认 AI）: ").strip() or "AI"
+        names = [human_name, ai_name]
+        ai_players[1] = BasicPokerAI(name=ai_name)
+    else:
+        names = []
+        for index in range(2):
+            name = input(f"请输入玩家 {index + 1} 名称（默认 玩家{index + 1}）: ").strip() or f"玩家{index + 1}"
+            names.append(name)
 
     game = Game(names, starting_stack=1000, small_blind=10, big_blind=20)
 
-    def action_provider(player: Player, options: List[str], call_amount: int, min_raise: int, highest_bet: int) -> Tuple[str, Optional[int]]:
+    def action_provider(context: DecisionContext) -> ActionDecision:
+        player = game.players[context.player_index]
+        ai_player = ai_players.get(context.player_index)
+        if ai_player is not None:
+            decision = ai_player.decide(context)
+            print(f"{player.name} 选择: {describe_action(decision.action, context)}")
+            return decision
+
         show_table(game, reveal_all=False, current_player=player)
-        action, amount = prompt_player_action(player, options, call_amount, min_raise, highest_bet)
-        return action, amount
+        return prompt_player_action(player, context)
 
     while True:
         result = game.play_hand(action_provider)

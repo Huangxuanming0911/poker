@@ -9,8 +9,6 @@ SUITS = ["♠", "♥", "♦", "♣"]
 RANK_VALUE = {rank: index for index, rank in enumerate(RANKS, start=2)}
 RANK_LABELS = {value: rank for rank, value in RANK_VALUE.items()}
 
-ActionProvider = Callable[["Player", List[str], int, int, int], Tuple[str, Optional[int]]]
-
 
 @dataclass
 class Card:
@@ -71,6 +69,55 @@ class Player:
 
     def is_still_playing(self) -> bool:
         return not self.folded
+
+    def snapshot(self) -> "PlayerSnapshot":
+        return PlayerSnapshot(
+            name=self.name,
+            stack=self.stack,
+            current_bet=self.current_bet,
+            total_bet=self.total_bet,
+            folded=self.folded,
+            all_in=self.all_in,
+        )
+
+
+@dataclass(frozen=True)
+class PlayerSnapshot:
+    name: str
+    stack: int
+    current_bet: int
+    total_bet: int
+    folded: bool
+    all_in: bool
+
+
+@dataclass(frozen=True)
+class ActionDecision:
+    action: str
+    amount: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class DecisionContext:
+    street: str
+    player_index: int
+    player: PlayerSnapshot
+    opponents: Tuple[PlayerSnapshot, ...]
+    hole_cards: Tuple[Card, ...]
+    community_cards: Tuple[Card, ...]
+    pot: int
+    call_amount: int
+    minimum_raise: int
+    highest_bet: int
+    small_blind: int
+    big_blind: int
+    available_actions: Tuple[str, ...]
+    action_targets: Dict[str, int]
+
+
+ActionProvider = Callable[["DecisionContext"], ActionDecision]
+
+PRESET_ACTION_LABELS = ("raise-2x", "raise-3x")
 
 
 def create_deck() -> List[Card]:
@@ -220,6 +267,7 @@ class Game:
         self.big_blind = big_blind
         self.minimum_raise = big_blind
         self.highest_bet = 0
+        self.current_street = "preflop"
 
     def alive_players(self) -> List[Player]:
         return [player for player in self.players if player.stack > 0 or not player.folded]
@@ -241,6 +289,7 @@ class Game:
             player.current_bet = 0
             player.acted = False
         self.highest_bet = 0
+        self.minimum_raise = self.big_blind
 
     def reset_for_new_hand(self) -> None:
         self.deck = shuffle_deck()
@@ -248,6 +297,8 @@ class Game:
         for player in self.players:
             player.reset_for_new_hand()
         self.highest_bet = 0
+        self.minimum_raise = self.big_blind
+        self.current_street = "preflop"
 
     def post_blinds(self) -> None:
         if len(self.players) == 2:
@@ -318,20 +369,131 @@ class Game:
     def is_single_player_remaining(self) -> bool:
         return sum(1 for player in self.players if not player.folded) <= 1
 
+    def round_half_up(self, value: float) -> int:
+        return max(1, int(value + 0.5))
+
+    def round_to_chip_unit(self, value: float) -> int:
+        unit = max(1, self.small_blind)
+        return max(unit, self.round_half_up(value / unit) * unit)
+
+    def action_street_ratio(self, action: str) -> float:
+        if action == "raise-2x":
+            return 0.66
+        if action == "raise-3x":
+            return 1.0
+        raise ValueError(f"未知预设动作: {action}")
+
+    def clamp_target_bet(self, player: Player, target_bet: int) -> int:
+        return max(player.current_bet + 1, min(target_bet, player.current_bet + player.stack))
+
+    def is_preflop_open_spot(self) -> bool:
+        return self.current_street == "preflop" and self.highest_bet == self.big_blind
+
+    def preflop_open_target(self, player: Player, action: str) -> int:
+        multiplier = 2.5 if action == "raise-2x" else 3.5
+        target = self.round_to_chip_unit(self.big_blind * multiplier)
+        return self.clamp_target_bet(player, target)
+
+    def preflop_reraise_target(self, player: Player, action: str) -> int:
+        multiplier = 2.2 if action == "raise-2x" else 3.0
+        min_total = self.highest_bet + self.minimum_raise
+        target = self.round_to_chip_unit(self.highest_bet * multiplier)
+        return self.clamp_target_bet(player, max(min_total, target))
+
+    def postflop_bet_target(self, player: Player, action: str) -> int:
+        ratio = self.action_street_ratio(action)
+        base = max(self.current_pot(), self.big_blind)
+        target = self.round_to_chip_unit(base * ratio)
+        target = max(target, self.big_blind)
+        return self.clamp_target_bet(player, target)
+
+    def raise_total_after_call(self, player: Player, action: str) -> int:
+        ratio = self.action_street_ratio(action)
+        call_amount = max(0, self.highest_bet - player.current_bet)
+        pot_after_call = self.current_pot() + call_amount
+        raise_increment = self.round_to_chip_unit(max(self.big_blind, pot_after_call) * ratio)
+        min_total = self.highest_bet + self.minimum_raise
+        target = max(min_total, self.highest_bet + raise_increment)
+        return self.clamp_target_bet(player, target)
+
+    def update_minimum_raise(self, previous_highest_bet: int, new_highest_bet: int) -> None:
+        raise_size = new_highest_bet - previous_highest_bet
+        if raise_size > 0:
+            self.minimum_raise = max(self.big_blind, raise_size)
+
+    def preset_action_target(self, player: Player, action: str) -> Optional[int]:
+        call_amount = self.highest_bet - player.current_bet
+        if action == "call":
+            return player.current_bet + min(call_amount, player.stack)
+        if action == "all-in":
+            return player.current_bet + player.stack
+        if action in PRESET_ACTION_LABELS:
+            if self.highest_bet == 0 or self.is_preflop_open_spot():
+                if self.current_street == "preflop":
+                    return self.preflop_open_target(player, action)
+                return self.postflop_bet_target(player, action)
+            if self.current_street == "preflop":
+                return self.preflop_reraise_target(player, action)
+            return self.raise_total_after_call(player, action)
+        return None
+
+    def resolve_action_decision(self, player: Player, decision: ActionDecision) -> Tuple[str, Optional[int]]:
+        if decision.action in {"raise-2x", "raise-3x"}:
+            target = self.preset_action_target(player, decision.action)
+            mapped_action = "bet" if self.highest_bet == 0 else "raise"
+            return mapped_action, target
+        return decision.action, decision.amount
+
+    def build_decision_context(
+        self,
+        player: Player,
+        player_index: int,
+        available_actions: List[str],
+        call_amount: int,
+    ) -> DecisionContext:
+        action_targets: Dict[str, int] = {}
+        for action in available_actions:
+            target = self.preset_action_target(player, action)
+            if target is not None:
+                action_targets[action] = target
+
+        opponents = tuple(
+            other.snapshot()
+            for index, other in enumerate(self.players)
+            if index != player_index
+        )
+        return DecisionContext(
+            street=self.current_street,
+            player_index=player_index,
+            player=player.snapshot(),
+            opponents=opponents,
+            hole_cards=tuple(player.hole_cards),
+            community_cards=tuple(self.community_cards),
+            pot=self.current_pot(),
+            call_amount=call_amount,
+            minimum_raise=self.minimum_raise,
+            highest_bet=self.highest_bet,
+            small_blind=self.small_blind,
+            big_blind=self.big_blind,
+            available_actions=tuple(available_actions),
+            action_targets=action_targets,
+        )
+
     def get_action_options(self, player: Player) -> List[str]:
         call_amount = self.highest_bet - player.current_bet
         options = ["fold"]
         if call_amount == 0:
             options.append("check")
-            if player.stack > 0:
-                options.append("bet")
-                options.append("all-in")
         else:
-            if player.stack > 0:
-                options.append("call")
-                options.append("all-in")
-                if player.stack > call_amount + self.minimum_raise - 1:
-                    options.append("raise")
+            options.append("call")
+
+        if player.stack > 0:
+            for action in PRESET_ACTION_LABELS:
+                mapped_action, amount = self.resolve_action_decision(player, ActionDecision(action))
+                valid, _ = self.validate_action(player, mapped_action, amount)
+                if valid:
+                    options.append(action)
+            options.append("all-in")
         return options
 
     def validate_action(self, player: Player, action: str, amount: Optional[int]) -> Tuple[bool, Optional[str]]:
@@ -387,6 +549,7 @@ class Game:
 
         while pending and not self.is_single_player_remaining():
             player = self.players[current_index]
+            player_index = current_index
             current_index = self.next_index(current_index)
             if player.folded or player.all_in:
                 continue
@@ -395,7 +558,9 @@ class Game:
 
             call_amount = self.highest_bet - player.current_bet
             options = self.get_action_options(player)
-            action, amount = action_provider(player, options, call_amount, self.minimum_raise, self.highest_bet)
+            context = self.build_decision_context(player, player_index, options, call_amount)
+            decision = action_provider(context)
+            action, amount = self.resolve_action_decision(player, decision)
             valid, message = self.validate_action(player, action, amount)
             if not valid:
                 raise ValueError(message or "无效动作。")
@@ -422,9 +587,11 @@ class Game:
                 continue
 
             if action == "all-in":
+                previous_highest_bet = self.highest_bet
                 player.bet_to(player.current_bet + player.stack)
                 if player.current_bet > self.highest_bet:
                     self.highest_bet = player.current_bet
+                    self.update_minimum_raise(previous_highest_bet, self.highest_bet)
                     pending = [p for p in self.players if not p.folded and not p.all_in and p.current_bet < self.highest_bet]
                     if player in pending:
                         pending.remove(player)
@@ -435,9 +602,11 @@ class Game:
 
             if action in ("bet", "raise"):
                 assert amount is not None
+                previous_highest_bet = self.highest_bet
                 player.bet_to(amount)
                 if player.current_bet > self.highest_bet:
                     self.highest_bet = player.current_bet
+                    self.update_minimum_raise(previous_highest_bet, self.highest_bet)
                     pending = [p for p in self.players if not p.folded and not p.all_in and p.current_bet < self.highest_bet]
                     if player in pending:
                         pending.remove(player)
@@ -458,6 +627,7 @@ class Game:
             first_to_act = self.button_index
         else:
             first_to_act = self.next_index(self.next_index(self.button_index))
+        self.current_street = "preflop"
         self.betting_round(first_to_act, action_provider)
         if self.is_single_player_remaining():
             results = self.split_pot()
@@ -473,6 +643,7 @@ class Game:
         self.deal_flop()
         self.reset_round_bets()
         middle_first = self.next_index(self.button_index)
+        self.current_street = "flop"
         self.betting_round(middle_first, action_provider)
         if self.is_single_player_remaining():
             results = self.split_pot()
@@ -487,6 +658,7 @@ class Game:
 
         self.deal_turn()
         self.reset_round_bets()
+        self.current_street = "turn"
         self.betting_round(middle_first, action_provider)
         if self.is_single_player_remaining():
             results = self.split_pot()
@@ -501,6 +673,7 @@ class Game:
 
         self.deal_river()
         self.reset_round_bets()
+        self.current_street = "river"
         self.betting_round(middle_first, action_provider)
 
         results = self.split_pot()
