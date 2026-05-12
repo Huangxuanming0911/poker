@@ -1,0 +1,174 @@
+/* Poker table layout and player slots. */
+
+.table-wrapper {
+  width: 100%;
+  display: flex; justify-content: center;
+  padding: 24px 16px 12px;
+}
+
+.poker-table {
+  position: relative;
+  width: min(880px, 95vw);
+  aspect-ratio: 2 / 1;
+  border-radius: 50% / 35%;
+  background:
+    radial-gradient(ellipse at center, #1e6b3e 0%, #134d2a 60%, #0a3d1f 100%);
+  box-shadow:
+    inset 0 0 80px rgba(0,0,0,0.35),
+    inset 0 0 0 8px #5d3a1a,
+    inset 0 0 0 14px #8b5a2b,
+    inset 0 0 0 16px rgba(0,0,0,0.4),
+    0 20px 50px rgba(0,0,0,0.7);
+}
+
+/* Community area centered on the felt */
+.community-area {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.community-cards {
+  display: flex; gap: 6px;
+  min-height: 96px;
+}
+.pot {
+  font-size: 18px; font-weight: 700;
+  color: #fde047;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+  letter-spacing: 0.02em;
+  background: rgba(0,0,0,0.4);
+  padding: 4px 16px;
+  border-radius: 16px;
+}
+/* Player slots positioned top-center & bottom-center for heads-up */
+.player-slot {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.08);
+  min-width: 200px;
+  transition: box-shadow 0.25s, transform 0.25s;
+}
+.player-slot-top { top: -8px; }
+.player-slot-bottom { bottom: -8px; }
+
+.player-slot.current {
+  box-shadow:
+    0 0 0 3px #fbbf24,
+    0 0 24px rgba(251, 191, 36, 0.6);
+}
+.player-slot.folded { opacity: 0.4; filter: grayscale(0.6); }
+.player-slot.flash-action {
+  animation: flashAction 1s ease-out;
+}
+@keyframes flashAction {
+  0% { box-shadow: 0 0 0 4px #3b82f6, 0 0 30px rgba(59,130,246,0.8); }
+  100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+}
+
+.player-name {
+  font-weight: 600;
+  font-size: 14px;
+  display: flex; align-items: center; gap: 6px;
+}
+.player-name .button-marker {
+  display: inline-block;
+  width: 22px; height: 22px;
+  background: white; color: #b91c1c;
+  border-radius: 50%; font-size: 11px; font-weight: 800;
+  text-align: center; line-height: 22px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+}
+.player-name .ai-badge {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+  padding: 2px 8px; border-radius: 999px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #e8eaed;
+}
+.player-name .ai-badge::before { content: "🤖"; margin-right: 4px; font-size: 11px; }
+.player-stack {
+  font-size: 13px; color: #fde047;
+  font-variant-numeric: tabular-nums;
+}
+.player-bet {
+  font-size: 12px; color: #cbd5e1;
+  background: rgba(255,255,255,0.06);
+  padding: 2px 8px; border-radius: 6px;
+}
+.player-status {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #f87171;
+}
+.player-hole {
+  display: flex; gap: 4px;
+  margin-top: 4px;
+}
+
+/* Status bar + action bar */
+.status-bar {
+  text-align: center;
+  padding: 12px 16px 4px;
+}
+.status-text {
+  font-size: 16px;
+  color: #cbd5e1;
+  min-height: 1.4em;
+}
+.status-text.your-turn { color: #fbbf24; font-weight: 600; }
+
+.action-bar {
+  display: flex; flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  padding: 16px 24px 24px;
+}
+.action-bar button {
+  padding: 12px 22px;
+  font-size: 15px; font-weight: 600;
+  border: none; border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 110px;
+  transition: transform 0.1s, box-shadow 0.15s, filter 0.15s;
+}
+.action-bar button:hover:not([disabled]) { transform: translateY(-2px); filter: brightness(1.1); }
+.action-bar .btn-fold { background: #475569; color: white; }
+.action-bar .btn-check { background: #64748b; color: white; }
+.action-bar .btn-call { background: #2563eb; color: white; }
+.action-bar .btn-raise-2x { background: #ea580c; color: white; }
+.action-bar .btn-raise-3x { background: #dc2626; color: white; }
+.action-bar .btn-all-in {
+  background: linear-gradient(135deg, #b91c1c, #7f1d1d);
+  color: white;
+  box-shadow: inset 0 0 0 2px #fbbf24;
+}
+
+.recent-log {
+  text-align: center;
+  font-size: 13px;
+  color: #94a3b8;
+  min-height: 1.4em;
+  padding: 4px 16px 16px;
+}
+.recent-log .log-entry {
+  display: inline-block;
+  margin: 0 6px;
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 6px;
+}
+
+@media (max-width: 640px) {
+  .player-slot { min-width: 150px; padding: 8px 12px; }
+  .player-slot-top { top: -4px; }
+  .player-slot-bottom { bottom: -4px; }
+  .action-bar button { padding: 10px 14px; font-size: 13px; min-width: 80px; }
+}

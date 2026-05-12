@@ -4,3 +4,4 @@ __pycache__/
 data/
 equity_preflop_table.json
 *.bak
+static/img/cards/

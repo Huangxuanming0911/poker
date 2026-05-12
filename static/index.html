@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Texas Hold'em</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/table.css" />
+  <link rel="stylesheet" href="/static/css/card.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="title" data-i18n="app_title"></div>
+      <div id="mode-badge" class="mode-badge" hidden>
+        <span id="mode-badge-text"></span>
+      </div>
+    </div>
+    <div class="topbar-controls">
+      <button id="lang-btn" class="ghost-btn" type="button">中 / EN</button>
+      <button id="settings-btn" class="ghost-btn" type="button" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main id="app">
+
+    <!-- Screen: start (mode + name selection) -->
+    <section id="screen-start" class="screen">
+      <div class="card-panel">
+        <h2 data-i18n="mode_select_prompt"></h2>
+        <div class="mode-grid">
+          <button class="mode-card" data-mode="pve" type="button">
+            <div class="mode-card-title" data-i18n="pve"></div>
+            <div class="mode-card-desc" data-i18n="pve_desc"></div>
+          </button>
+          <button class="mode-card" data-mode="pvp" type="button">
+            <div class="mode-card-title" data-i18n="pvp"></div>
+            <div class="mode-card-desc" data-i18n="pvp_desc"></div>
+          </button>
+        </div>
+
+        <div id="setup-pve" class="setup-form" hidden>
+          <label data-i18n="enter_your_name"></label>
+          <input id="input-human-name" type="text" maxlength="20" />
+          <label data-i18n="enter_ai_name"></label>
+          <input id="input-ai-name" type="text" maxlength="20" />
+          <label data-i18n="ai_level"></label>
+          <select id="select-ai-level">
+            <option value="advanced" data-i18n="ai_level_advanced"></option>
+            <option value="basic" data-i18n="ai_level_basic"></option>
+          </select>
+          <div class="form-actions">
+            <button class="ghost-btn" type="button" data-action="setup-back" data-i18n="back"></button>
+            <button class="primary-btn" type="button" data-action="setup-start-pve" data-i18n="start_game"></button>
+          </div>
+        </div>
+
+        <div id="setup-pvp" class="setup-form" hidden>
+          <label data-i18n="enter_name_a"></label>
+          <input id="input-name-a" type="text" maxlength="20" />
+          <label data-i18n="enter_name_b"></label>
+          <input id="input-name-b" type="text" maxlength="20" />
+          <div class="form-actions">
+            <button class="ghost-btn" type="button" data-action="setup-back" data-i18n="back"></button>
+            <button class="primary-btn" type="button" data-action="setup-start-pvp" data-i18n="start_game"></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Screen: table -->
+    <section id="screen-table" class="screen" hidden>
+      <div class="table-wrapper">
+        <div class="poker-table" id="poker-table">
+          <div class="player-slot player-slot-top" id="slot-1"></div>
+          <div class="player-slot player-slot-bottom" id="slot-0"></div>
+          <div class="community-area">
+            <div class="pot" id="pot-display"></div>
+            <div class="community-cards" id="community-cards"></div>
+          </div>
+        </div>
+      </div>
+      <div class="status-bar">
+        <div class="status-text" id="status-text"></div>
+      </div>
+      <div class="action-bar" id="action-bar"></div>
+      <div class="recent-log" id="recent-log"></div>
+    </section>
+
+    <!-- Screen: PVP handoff cover -->
+    <section id="screen-handoff" class="screen" hidden>
+      <div class="card-panel handoff-panel">
+        <h2 id="handoff-title"></h2>
+        <p data-i18n="pass_screen_hint" class="muted"></p>
+        <button class="primary-btn big-btn" type="button" id="handoff-ready" data-i18n="tap_to_continue"></button>
+      </div>
+    </section>
+
+    <!-- Bottom drawer: hand done / game over / error all share this slot -->
+    <div id="result-drawer" class="result-drawer" hidden>
+      <div class="result-drawer-inner">
+        <div class="result-title" id="result-title"></div>
+        <div class="result-winners" id="result-winners"></div>
+        <div class="result-showdown" id="result-showdown"></div>
+        <div class="result-message" id="result-message"></div>
+        <div class="result-actions" id="result-actions"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Settings drawer -->
+  <aside id="settings-panel" class="drawer" hidden>
+    <div class="drawer-header">
+      <h3 data-i18n="settings"></h3>
+      <button class="ghost-btn" type="button" id="settings-close" data-i18n="close"></button>
+    </div>
+    <div class="drawer-body">
+      <label data-i18n="card_style"></label>
+      <select id="select-card-style">
+        <option value="css" data-i18n="card_style_css"></option>
+        <option value="svg" data-i18n="card_style_svg"></option>
+      </select>
+      <label data-i18n="language"></label>
+      <select id="select-language">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+  </aside>
+
+  <script src="/static/js/i18n.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/card.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

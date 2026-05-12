@@ -1,0 +1,116 @@
+/* Card rendering: CSS mode + SVG mode share the .card wrapper. */
+
+.card {
+  width: 64px;
+  height: 96px;
+  border-radius: 8px;
+  display: inline-block;
+  user-select: none;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.css-card {
+  background: #fafafa;
+  box-shadow:
+    0 4px 10px rgba(0,0,0,0.35),
+    inset 0 0 0 1px rgba(0,0,0,0.05);
+  font-family: Georgia, "Times New Roman", serif;
+  overflow: hidden;
+}
+.css-card.red { color: #dc2626; }
+.css-card.black { color: #1f2937; }
+
+.css-card .rank-top,
+.css-card .rank-bottom {
+  position: absolute;
+  font-weight: 700;
+  line-height: 1;
+  display: flex; flex-direction: column;
+  align-items: center;
+  font-size: 16px;
+}
+.css-card .rank-top { top: 6px; left: 6px; }
+.css-card .rank-bottom { bottom: 6px; right: 6px; transform: rotate(180deg); }
+.css-card .rank-top .suit-mini,
+.css-card .rank-bottom .suit-mini {
+  font-size: 13px;
+  margin-top: 1px;
+}
+
+.css-card .suit-center {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 36px;
+  line-height: 1;
+}
+
+.card-back {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      #b91c1c 0,
+      #b91c1c 7px,
+      #7f1d1d 7px,
+      #7f1d1d 14px
+    );
+  border: 3px solid #fafafa;
+  box-shadow:
+    0 4px 10px rgba(0,0,0,0.35),
+    inset 0 0 0 1px rgba(0,0,0,0.05);
+  overflow: hidden;
+}
+.card-back::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.4);
+}
+
+/* SVG card image: rely on the SVG's own white card body so there's no double
+   border. drop-shadow follows the SVG's actual shape (transparent corners). */
+.card-img {
+  width: 64px;
+  height: 96px;
+  background: transparent;
+  border-radius: 0;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.35));
+  display: inline-block;
+  object-fit: contain;
+}
+
+/* Larger cards used in the showdown drawer */
+.card-lg, .card-lg.card-img {
+  width: 80px;
+  height: 120px;
+}
+
+/* Reveal animation for cards dealt mid-animation (all-in turn/river runout) */
+@keyframes cardReveal {
+  0%   { transform: rotateY(90deg) translateY(-18px); opacity: 0; }
+  55%  { transform: rotateY(0) translateY(0); opacity: 1; filter: drop-shadow(0 0 14px rgba(251,191,36,0.7)); }
+  100% { transform: rotateY(0) translateY(0); opacity: 1; }
+}
+.card-reveal {
+  animation: cardReveal 0.55s ease-out;
+  transform-origin: center;
+}
+.card-lg.css-card .rank-top, .card-lg.css-card .rank-bottom {
+  font-size: 20px;
+}
+.card-lg.css-card .suit-center { font-size: 46px; }
+
+/* Community cards a touch larger */
+.community-cards .card,
+.community-cards .card-img {
+  width: 64px; height: 96px;
+}
+
+@media (max-width: 640px) {
+  .card, .card-img { width: 48px; height: 72px; }
+  .css-card .rank-top, .css-card .rank-bottom { font-size: 13px; }
+  .css-card .suit-center { font-size: 28px; }
+  .card-lg, .card-lg.card-img { width: 64px; height: 96px; }
+}

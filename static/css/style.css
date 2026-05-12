@@ -1,0 +1,228 @@
+/* Global resets + layout chrome. */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  background: #0e1116;
+  color: #e8eaed;
+  min-height: 100vh;
+}
+body { display: flex; flex-direction: column; min-height: 100vh; }
+
+.topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 24px;
+  background: linear-gradient(180deg, #1a1f29 0%, #0e1116 100%);
+  border-bottom: 1px solid #2a3140;
+  position: sticky; top: 0; z-index: 50;
+}
+.topbar .title { font-size: 20px; font-weight: 700; letter-spacing: 0.02em; }
+.topbar-left { display: flex; align-items: center; gap: 14px; }
+.topbar-controls { display: flex; gap: 8px; }
+
+.mode-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  text-transform: uppercase;
+  user-select: none;
+}
+.mode-badge[data-mode="pve"]::before { content: "🤖"; font-size: 13px; }
+.mode-badge[data-mode="pvp"]::before { content: "👥"; font-size: 13px; }
+
+button { font-family: inherit; cursor: pointer; }
+.ghost-btn {
+  background: transparent; color: #e8eaed;
+  border: 1px solid #3a4252; border-radius: 8px;
+  padding: 6px 14px; font-size: 14px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ghost-btn:hover { background: rgba(255,255,255,0.06); border-color: #5a6274; }
+.primary-btn {
+  background: linear-gradient(180deg, #3b82f6, #1d4ed8);
+  color: white; border: none; border-radius: 8px;
+  padding: 10px 22px; font-size: 15px; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(29,78,216,0.4);
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+.primary-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(29,78,216,0.5); }
+.primary-btn:active { transform: translateY(0); }
+.primary-btn.big-btn { padding: 16px 40px; font-size: 18px; }
+.primary-btn[disabled], .ghost-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+#app { flex: 1; display: flex; flex-direction: column; }
+.screen {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+
+.card-panel {
+  background: #1a1f29;
+  border: 1px solid #2a3140;
+  border-radius: 14px;
+  padding: 32px 36px;
+  max-width: 520px; width: 100%;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+}
+.card-panel h2 {
+  margin: 0 0 24px;
+  font-size: 22px; font-weight: 600;
+  text-align: center;
+}
+
+.mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.mode-card {
+  background: #232938; color: inherit; font-family: inherit;
+  border: 2px solid #2a3140; border-radius: 12px;
+  padding: 24px 16px; cursor: pointer; text-align: center;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+}
+.mode-card:hover { border-color: #3b82f6; background: #2a3140; transform: translateY(-2px); }
+.mode-card.active { border-color: #3b82f6; background: #1e3a8a; }
+.mode-card-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.mode-card-desc { font-size: 13px; color: #94a3b8; }
+
+.setup-form { display: flex; flex-direction: column; gap: 10px; }
+.setup-form label {
+  font-size: 13px; color: #94a3b8;
+  margin-top: 8px;
+}
+.setup-form input, .setup-form select {
+  font-family: inherit; font-size: 15px;
+  background: #0e1116; color: #e8eaed;
+  border: 1px solid #3a4252; border-radius: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.15s;
+}
+.setup-form input:focus, .setup-form select:focus {
+  outline: none; border-color: #3b82f6;
+}
+.form-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; }
+
+/* Settings drawer (right-side slide-in) */
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 320px; max-width: 90vw;
+  background: #1a1f29;
+  border-left: 1px solid #2a3140;
+  box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+  transform: translateX(0);
+  transition: transform 0.25s ease;
+  z-index: 100;
+  display: flex; flex-direction: column;
+}
+.drawer[hidden] { display: flex; transform: translateX(110%); }
+.drawer-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a3140;
+}
+.drawer-header h3 { margin: 0; font-size: 17px; }
+.drawer-body { padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+.drawer-body label { font-size: 13px; color: #94a3b8; margin-top: 12px; }
+.drawer-body select {
+  font-family: inherit; font-size: 15px;
+  background: #0e1116; color: #e8eaed;
+  border: 1px solid #3a4252; border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* Bottom result drawer (replaces full-screen modal). Sits at bottom-of-viewport,
+   leaves the poker table visible above. */
+.result-drawer {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(180deg, rgba(26,31,41,0.92) 0%, rgba(14,17,22,0.97) 100%);
+  border-top: 1px solid #3a4252;
+  box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+  backdrop-filter: blur(8px);
+  padding: 18px 24px 26px;
+  z-index: 60;
+  transform: translateY(0);
+  transition: transform 0.32s cubic-bezier(.2,.7,.3,1);
+}
+.result-drawer[hidden] {
+  display: block;
+  transform: translateY(102%);
+  pointer-events: none;
+}
+.result-drawer-inner {
+  max-width: 880px; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.result-title {
+  text-align: center;
+  font-size: 14px; color: #94a3b8;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.result-winners { display: flex; flex-direction: column; gap: 4px; }
+.result-winners .winner-line {
+  text-align: center; font-size: 20px; font-weight: 700; color: #fbbf24;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.result-showdown { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+.result-showdown:empty { display: none; }
+.result-showdown .showdown-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px; background: rgba(255,255,255,0.04);
+  border-radius: 10px;
+}
+.result-showdown .showdown-row .name { font-weight: 600; min-width: 60px; }
+.result-showdown .showdown-row .hand-cards { display: flex; gap: 4px; }
+.result-showdown .showdown-row .description { color: #94a3b8; font-size: 13px; }
+.result-message {
+  text-align: center; color: #cbd5e1; min-height: 0;
+}
+.result-message:empty { display: none; }
+.result-actions { display: flex; justify-content: center; gap: 12px; margin-top: 4px; }
+
+/* Modal (legacy, still here in case something else uses it) */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+.modal-overlay[hidden] { display: none; }
+.modal {
+  background: #1a1f29;
+  border: 1px solid #2a3140;
+  border-radius: 14px;
+  padding: 28px 32px;
+  max-width: 480px; width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  animation: modalIn 0.2s ease-out;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal h2 { margin: 0 0 16px; font-size: 22px; }
+.modal p { color: #cbd5e1; line-height: 1.5; }
+.modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+
+#modal-winner-list .winner-line {
+  font-size: 18px; padding: 8px 0; color: #fbbf24;
+  border-bottom: 1px dashed #3a4252;
+}
+#modal-showdown { margin: 16px 0; display: flex; flex-direction: column; gap: 12px; }
+.showdown-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px; background: #232938; border-radius: 8px;
+}
+.showdown-row .name { font-weight: 600; min-width: 80px; }
+.showdown-row .hand-cards { display: flex; gap: 4px; }
+.showdown-row .description { color: #94a3b8; font-size: 13px; margin-left: auto; }
+
+/* Misc */
+.muted { color: #94a3b8; }
+.handoff-panel { text-align: center; padding: 60px 40px; }
+.handoff-panel h2 { font-size: 28px; margin-bottom: 16px; }
+
+@media (max-width: 640px) {
+  .card-panel { padding: 24px 20px; }
+  .mode-grid { grid-template-columns: 1fr; }
+  .topbar { padding: 10px 16px; }
+}

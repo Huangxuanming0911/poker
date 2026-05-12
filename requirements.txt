@@ -1,2 +1,4 @@
-# 本项目仅使用 Python 标准库，不依赖第三方包
 # 推荐使用 Python 3.8 及以上版本
+# CLI 模式仅用标准库
+# Web UI 模式需要 Flask
+Flask>=3.0
