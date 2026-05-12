@@ -1,7 +1,13 @@
+import atexit
+import os
 from typing import List, Optional
 
+from advanced_ai import AdvancedPokerAI
 from ai import BasicPokerAI, PokerAI
+from ai_params import AIParams
 from engine import ActionDecision, DecisionContext, Game, Player, describe_hand_value, evaluate_best_hand
+from opponent_model import OpponentModel, build_hand_log_from_game
+from persistence import AI_PARAMS_PATH, HAND_HISTORY_PATH, OPPONENT_PROFILES_PATH, append_hand_log
 
 ACTION_ALIASES = {
     "fold": {"fold", "f"},
@@ -137,18 +143,27 @@ def run_game() -> None:
         print("请输入 1/PVP 或 2/PVE。")
 
     ai_players: dict[int, PokerAI] = {}
+    opp_model: Optional[OpponentModel] = None
     if mode == "pve":
         human_name = input("请输入你的名称（默认 玩家1）: ").strip() or "玩家1"
         ai_name = input("请输入 AI 名称（默认 AI）: ").strip() or "AI"
+        ai_level_raw = input("请选择 AI 等级：1. 高级（推荐）  2. 基础（默认 1）: ").strip()
         names = [human_name, ai_name]
-        ai_players[1] = BasicPokerAI(name=ai_name)
+        if ai_level_raw in {"2", "basic", "basic-ai"}:
+            ai_players[1] = BasicPokerAI(name=ai_name)
+        else:
+            params = AIParams.load_or_default(AI_PARAMS_PATH)
+            opp_model = OpponentModel(profile_path=OPPONENT_PROFILES_PATH)
+            ai_players[1] = AdvancedPokerAI(name=ai_name, params=params, opponent_model=opp_model)
+            atexit.register(opp_model.save)
     else:
         names = []
         for index in range(2):
             name = input(f"请输入玩家 {index + 1} 名称（默认 玩家{index + 1}）: ").strip() or f"玩家{index + 1}"
             names.append(name)
 
-    game = Game(names, starting_stack=1000, small_blind=10, big_blind=20)
+    starting_stack = 1000
+    game = Game(names, starting_stack=starting_stack, small_blind=10, big_blind=20)
 
     def action_provider(context: DecisionContext) -> ActionDecision:
         player = game.players[context.player_index]
@@ -162,8 +177,26 @@ def run_game() -> None:
         return prompt_player_action(player, context)
 
     while True:
+        button_before = game.button_index
+        stacks_before = [p.stack for p in game.players]
         result = game.play_hand(action_provider)
         summarize_hand(game, result)
+
+        payoffs = {p.name: p.stack - stacks_before[i] for i, p in enumerate(game.players)}
+        hand_log = build_hand_log_from_game(
+            game,
+            starting_stacks=stacks_before,
+            button_index_at_start=button_before,
+            payoffs=payoffs,
+            final_stage=result["stage"],
+        )
+        if opp_model is not None:
+            opp_model.observe(hand_log, self_name=ai_players[1].name)
+        try:
+            append_hand_log(HAND_HISTORY_PATH, hand_log)
+        except OSError:
+            pass
+
         print("当前筹码:")
         for player in game.players:
             print(f"{player.name}: {player.stack}")
@@ -176,7 +209,7 @@ def run_game() -> None:
             if choice.startswith("n"):
                 print("游戏结束，谢谢游玩！")
                 break
-            game = Game(names, starting_stack=1000, small_blind=10, big_blind=20)
+            game = Game(names, starting_stack=starting_stack, small_blind=10, big_blind=20)
             continue
 
         if input("继续下一手？(Y/n): ").strip().lower().startswith("n"):

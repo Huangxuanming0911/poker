@@ -113,6 +113,8 @@ class DecisionContext:
     big_blind: int
     available_actions: Tuple[str, ...]
     action_targets: Dict[str, int]
+    button_index: int = 0
+    actions_this_hand: Tuple[Tuple[str, int, str, int], ...] = ()
 
 
 ActionProvider = Callable[["DecisionContext"], ActionDecision]
@@ -268,6 +270,7 @@ class Game:
         self.minimum_raise = big_blind
         self.highest_bet = 0
         self.current_street = "preflop"
+        self.actions_this_hand: List[Tuple[str, int, str, int]] = []
 
     def alive_players(self) -> List[Player]:
         return [player for player in self.players if player.stack > 0 or not player.folded]
@@ -299,6 +302,7 @@ class Game:
         self.highest_bet = 0
         self.minimum_raise = self.big_blind
         self.current_street = "preflop"
+        self.actions_this_hand = []
 
     def post_blinds(self) -> None:
         if len(self.players) == 2:
@@ -477,6 +481,8 @@ class Game:
             big_blind=self.big_blind,
             available_actions=tuple(available_actions),
             action_targets=action_targets,
+            button_index=self.button_index,
+            actions_this_hand=tuple(self.actions_this_hand),
         )
 
     def get_action_options(self, player: Player) -> List[str]:
@@ -570,37 +576,26 @@ class Game:
                 player.folded = True
                 if player in pending:
                     pending.remove(player)
-                continue
-
-            if action == "check":
+            elif action == "check":
                 if player in pending:
                     pending.remove(player)
-                continue
-
-            if action == "call":
+            elif action == "call":
                 if call_amount >= player.stack:
                     player.bet_to(player.current_bet + player.stack)
                 else:
                     player.bet_to(self.highest_bet)
                 if player in pending:
                     pending.remove(player)
-                continue
-
-            if action == "all-in":
+            elif action == "all-in":
                 previous_highest_bet = self.highest_bet
                 player.bet_to(player.current_bet + player.stack)
                 if player.current_bet > self.highest_bet:
                     self.highest_bet = player.current_bet
                     self.update_minimum_raise(previous_highest_bet, self.highest_bet)
                     pending = [p for p in self.players if not p.folded and not p.all_in and p.current_bet < self.highest_bet]
-                    if player in pending:
-                        pending.remove(player)
-                else:
-                    if player in pending:
-                        pending.remove(player)
-                continue
-
-            if action in ("bet", "raise"):
+                if player in pending:
+                    pending.remove(player)
+            elif action in ("bet", "raise"):
                 assert amount is not None
                 previous_highest_bet = self.highest_bet
                 player.bet_to(amount)
@@ -608,12 +603,12 @@ class Game:
                     self.highest_bet = player.current_bet
                     self.update_minimum_raise(previous_highest_bet, self.highest_bet)
                     pending = [p for p in self.players if not p.folded and not p.all_in and p.current_bet < self.highest_bet]
-                    if player in pending:
-                        pending.remove(player)
-                else:
-                    if player in pending:
-                        pending.remove(player)
-                continue
+                if player in pending:
+                    pending.remove(player)
+
+            self.actions_this_hand.append(
+                (self.current_street, player_index, decision.action, player.current_bet)
+            )
 
         for player in self.players:
             player.acted = False

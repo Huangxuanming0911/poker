@@ -1,3 +1,6 @@
 .venv/
 __pycache__/
 *.pyc
+data/
+equity_preflop_table.json
+*.bak
