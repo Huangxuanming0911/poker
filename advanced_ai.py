@@ -55,7 +55,7 @@ class AdvancedPokerAI:
         in_position = self._in_position(context)
 
         opp_range = self._build_opp_range(context, params)
-        samples = 150 if self.training_mode else 300
+        samples = 50 if self.training_mode else 300
         equity = equity_vs_range(
             my_hole=context.hole_cards,
             board=context.community_cards,
@@ -83,20 +83,29 @@ class AdvancedPokerAI:
             if decision is not None:
                 return decision
 
-        if (
-            "all-in" in available
-            and self._effective_stack(context) <= big_blind * 8
-            and equity >= params.short_stack_jam_threshold
-        ):
-            return ActionDecision("all-in")
+        effective = self._effective_stack(context)
+
+        if "all-in" in available and effective <= big_blind * 8:
+            if equity >= params.short_stack_jam_threshold:
+                if self.rng.random() < params.allin_value_freq:
+                    return ActionDecision("all-in")
+                return self._pick_raise(params, available, prefer_large=True)
+            elif self.rng.random() < params.allin_bluff_freq:
+                return ActionDecision("all-in")
+
+        if "all-in" in available and big_blind * 8 < effective <= big_blind * 15:
+            if equity >= params.medium_stack_jam_threshold:
+                return ActionDecision("all-in")
 
         if (
             spr <= params.spr_commit_threshold
-            and equity >= params.value_3x_threshold
             and "all-in" in available
-            and self._effective_stack(context) <= big_blind * 25
+            and effective <= big_blind * 25
         ):
-            return ActionDecision("all-in")
+            if equity >= params.value_3x_threshold:
+                return ActionDecision("all-in")
+            elif self.rng.random() < params.allin_spr_bluff_freq:
+                return ActionDecision("all-in")
 
         if context.call_amount == 0:
             return self._choose_open_action(

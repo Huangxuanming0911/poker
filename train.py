@@ -188,7 +188,9 @@ def train(
     print(f"Training: CMA-ES popsize={popsize} generations={generations} "
           f"hands/match={n_hands} workers={workers} cfr={use_cfr}")
     print(f"Opponent pool size: {len(pool)}")
-    print(f"Estimated time: ~{popsize * n_hands * 0.15 / max(1, workers) * generations / 60:.0f} minutes")
+    est_seconds_per_gen = popsize * n_hands * 0.04 / max(1, workers)
+    est_minutes = est_seconds_per_gen * generations / 60
+    print(f"Estimated time: ~{est_minutes:.0f} minutes")
     print()
 
     cfr_collector = None
@@ -197,64 +199,107 @@ def train(
         cfr_collector = CFRCollector()
 
     gen = 0
-    while not es.stop():
-        t0 = time.perf_counter()
-        solutions = es.ask()
+    mp_pool = None
+    if workers > 1:
+        mp_pool = mp.Pool(workers)
 
-        rng = random.Random(gen * 1000)
-        tasks = []
-        for sol in solutions:
-            opp_params = pool.sample(rng)
-            seed = rng.randint(0, 2**31 - 1)
-            tasks.append((list(sol), opp_params.to_vector(), n_hands, seed))
+    start_time = time.perf_counter()
 
-        if workers > 1:
-            ctx = mp.get_context("spawn")
-            with ctx.Pool(workers) as p:
-                fitnesses = p.map(_eval_candidate, tasks)
-        else:
-            fitnesses = [_eval_candidate(t) for t in tasks]
+    try:
+        while not es.stop():
+            t0 = time.perf_counter()
+            solutions = es.ask()
 
-        es.tell(solutions, [-f for f in fitnesses])
-        elapsed = time.perf_counter() - t0
+            rng = random.Random(gen * 1000)
+            tasks = []
+            for sol in solutions:
+                opp_params = pool.sample(rng)
+                seed = rng.randint(0, 2**31 - 1)
+                tasks.append((list(sol), opp_params.to_vector(), n_hands, seed))
 
-        best_this_gen = max(fitnesses)
-        mean_this_gen = sum(fitnesses) / len(fitnesses)
-        sigma_now = es.sigma
+            print(f"gen {gen:2d}: evaluating {len(tasks)} candidates × {n_hands} hands ...", end="", flush=True)
 
-        best_params = AIParams.from_vector(es.result.xbest)
+            if mp_pool is not None:
+                fitnesses = mp_pool.map(_eval_candidate, tasks)
+            else:
+                fitnesses = [_eval_candidate(t) for t in tasks]
 
-        if use_cfr and cfr_collector is not None:
-            gradient = cfr_collector.suggest_param_gradient(best_params)
-            if gradient:
-                from dataclasses import replace as dc_replace
-                adjustments = {}
-                for param_name, delta in gradient.items():
-                    current = getattr(best_params, param_name)
-                    adjustments[param_name] = current + 0.005 * delta
-                adjusted = dc_replace(best_params, **adjustments).clipped()
-                es.mean = adjusted.to_vector()
-            cfr_collector.reset()
+            es.tell(solutions, [-f for f in fitnesses])
+            elapsed = time.perf_counter() - t0
+            total_elapsed = time.perf_counter() - start_time
 
-        if (gen + 1) % 3 == 0:
-            pool.add(best_params)
+            best_this_gen = max(fitnesses)
+            worst_this_gen = min(fitnesses)
+            mean_this_gen = sum(fitnesses) / len(fitnesses)
+            sigma_now = es.sigma
 
-        best_params.save(out_path)
+            best_params = AIParams.from_vector(es.result.xbest)
 
-        fits_str = " ".join(f"{f:+.2f}" for f in sorted(fitnesses, reverse=True)[:5])
-        print(f"gen {gen:2d}: best={best_this_gen:+.3f} mean={mean_this_gen:+.3f} "
-              f"σ={sigma_now:.4f} pool={len(pool)} [{fits_str}] {elapsed:.0f}s")
+            if use_cfr and cfr_collector is not None:
+                gradient = cfr_collector.suggest_param_gradient(best_params)
+                if gradient:
+                    from dataclasses import replace as dc_replace
+                    adjustments = {}
+                    for param_name, delta in gradient.items():
+                        current = getattr(best_params, param_name)
+                        adjustments[param_name] = current + 0.005 * delta
+                    adjusted = dc_replace(best_params, **adjustments).clipped()
+                    es.mean = adjusted.to_vector()
+                    cfr_applied = True
+                else:
+                    cfr_applied = False
+                cfr_collector.reset()
+            else:
+                cfr_applied = False
 
-        if (gen + 1) % 5 == 0:
-            check = run_match_vs_basic(best_params, n_hands, seed=99999 + gen)
-            print(f"  → vs BasicPokerAI: {check:+.3f} bb/hand")
+            if (gen + 1) % 3 == 0:
+                pool.add(best_params)
 
-        gen += 1
+            best_params.save(out_path)
 
+            # Main log line
+            fits_str = " ".join(f"{f:+.2f}" for f in sorted(fitnesses, reverse=True)[:5])
+            remaining_gens = generations - gen - 1
+            eta_s = (elapsed * remaining_gens) if gen == 0 else (total_elapsed / (gen + 1) * remaining_gens)
+            eta_min = eta_s / 60
+
+            print(f"\rgen {gen:2d}: best={best_this_gen:+.3f} worst={worst_this_gen:+.3f} "
+                  f"mean={mean_this_gen:+.3f} σ={sigma_now:.4f} "
+                  f"pool={len(pool)} {elapsed:.0f}s "
+                  f"[ETA {eta_min:.0f}min]"
+                  f"{' +CFR' if cfr_applied else ''}")
+            print(f"        top5: [{fits_str}]")
+
+            # Every 5 gens: regression check + param snapshot
+            if (gen + 1) % 5 == 0:
+                check = run_match_vs_basic(best_params, n_hands, seed=99999 + gen)
+                print(f"  ── checkpoint: vs BasicPokerAI = {check:+.3f} bb/hand")
+                # Print key param changes vs default
+                default = AIParams()
+                diffs = []
+                for f in fields(AIParams):
+                    cur = getattr(best_params, f.name)
+                    orig = getattr(default, f.name)
+                    if abs(cur - orig) > 0.005:
+                        diffs.append(f"{f.name}={cur:.3f}({orig:.3f})")
+                if diffs:
+                    print(f"  ── param drift: {', '.join(diffs[:6])}")
+                print()
+
+            gen += 1
+    finally:
+        if mp_pool is not None:
+            mp_pool.close()
+            mp_pool.join()
+
+    total_time = time.perf_counter() - start_time
     pool.save(OPPONENT_POOL_PATH)
     final_params = AIParams.from_vector(es.result.xbest)
     final_params.save(out_path)
 
+    print(f"\n{'='*60}")
+    print(f"Training complete: {gen} generations in {total_time/60:.1f} minutes")
+    print(f"Final σ={es.sigma:.4f}, opponent pool size={len(pool)}")
     print(f"\nFinal evaluation (5 seeds × {n_hands} hands vs BasicPokerAI):")
     results = []
     for s in range(5):
@@ -262,7 +307,8 @@ def train(
         results.append(r)
         print(f"  seed={s}: {r:+.3f} bb/hand")
     print(f"  Mean: {sum(results)/5:+.3f} bb/hand")
-    print(f"Saved to {out_path}")
+    print(f"\nSaved to {out_path}")
+    print(f"{'='*60}")
 
 
 # ----------------------------------------------------------------------

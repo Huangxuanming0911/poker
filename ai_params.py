@@ -48,6 +48,14 @@ class AIParams:
     sizing_mix_freq: float = 0.20
     # Base scale for randomness across mixed strategies (0=deterministic, 1=high noise)
     mixed_strategy_noise: float = 1.0
+    # Short-stack bluff jam: probability of jamming with low equity when ≤ 8BB
+    allin_bluff_freq: float = 0.08
+    # Short-stack value jam: probability of actually jamming (vs raise-3x) when equity meets threshold
+    allin_value_freq: float = 0.85
+    # Medium stack (8-15BB) jam equity threshold
+    medium_stack_jam_threshold: float = 0.58
+    # SPR commit bluff: probability of bluff-jamming when SPR ≤ threshold but equity is below value range
+    allin_spr_bluff_freq: float = 0.05
 
     # Hard clip ranges per field — keeps trainer perturbations sane.
     @staticmethod
@@ -68,6 +76,10 @@ class AIParams:
             "opp_calling_threshold": (0.05, 0.30),
             "min_bluff_ev_bb": (-0.5, 1.0),
             "bluff_execute_freq": (0.30, 1.0),
+            "allin_bluff_freq": (0.0, 0.20),
+            "allin_value_freq": (0.60, 1.0),
+            "medium_stack_jam_threshold": (0.45, 0.75),
+            "allin_spr_bluff_freq": (0.0, 0.15),
         }
 
     def clipped(self) -> "AIParams":
