@@ -7,6 +7,7 @@ from ai import BasicPokerAI, PokerAI
 from ai_params import AIParams
 from engine import ActionDecision, DecisionContext, Game, Player, describe_hand_value, evaluate_best_hand
 from opponent_model import OpponentModel, build_hand_log_from_game
+from online_learner import OnlineLearner
 from persistence import AI_PARAMS_PATH, HAND_HISTORY_PATH, OPPONENT_PROFILES_PATH, append_hand_log
 
 ACTION_ALIASES = {
@@ -134,8 +135,10 @@ def summarize_hand(game: Game, results: dict) -> None:
     print("===============\n")
 
 
-def run_game() -> None:
+def run_game(online_learn: bool = False) -> None:
     print("欢迎来到德州扑克 CLI 小程序！")
+    if online_learn:
+        print("  [在线学习已启用：每 30 手自动微调 AI 参数]")
     while True:
         mode = parse_mode(input("请选择模式：1. PVP  2. PVE（默认 2）: "))
         if mode is not None:
@@ -144,6 +147,7 @@ def run_game() -> None:
 
     ai_players: dict[int, PokerAI] = {}
     opp_model: Optional[OpponentModel] = None
+    learner: Optional[OnlineLearner] = None
     if mode == "pve":
         human_name = input("请输入你的名称（默认 玩家1）: ").strip() or "玩家1"
         ai_name = input("请输入 AI 名称（默认 AI）: ").strip() or "AI"
@@ -156,6 +160,8 @@ def run_game() -> None:
             opp_model = OpponentModel(profile_path=OPPONENT_PROFILES_PATH)
             ai_players[1] = AdvancedPokerAI(name=ai_name, params=params, opponent_model=opp_model)
             atexit.register(opp_model.save)
+            if online_learn:
+                learner = OnlineLearner(params=params)
     else:
         names = []
         for index in range(2):
@@ -171,6 +177,20 @@ def run_game() -> None:
         if ai_player is not None:
             decision = ai_player.decide(context)
             print(f"{player.name} 选择: {describe_action(decision.action, context)}")
+            if learner is not None and isinstance(ai_player, AdvancedPokerAI):
+                from range import fold_freq_estimate, equity_vs_range
+                opp_range = ai_player._build_opp_range(context, ai_player.params)
+                eq = equity_vs_range(context.hole_cards, context.community_cards, opp_range, samples=100, rng=ai_player.rng)
+                ff = fold_freq_estimate(opp_range, context.community_cards, max(1, context.pot // 2), max(1, context.pot), ai_player.params.opp_calling_threshold) if context.community_cards else 0.0
+                learner.record_decision(
+                    street=context.street, equity=eq, pot=context.pot,
+                    call_amount=context.call_amount,
+                    action_targets=dict(context.action_targets),
+                    available_actions=list(context.available_actions),
+                    chosen_action=decision.action,
+                    in_position=(context.player_index == context.button_index),
+                    fold_freq=ff, big_blind=context.big_blind,
+                )
             return decision
 
         show_table(game, reveal_all=False, current_player=player)
@@ -218,4 +238,6 @@ def run_game() -> None:
 
 
 if __name__ == "__main__":
-    run_game()
+    import sys
+    online_learn = "--online-learn" in sys.argv
+    run_game(online_learn=online_learn)

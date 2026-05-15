@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, fields, replace
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -77,6 +77,21 @@ class AIParams:
             lo, hi = ranges[f.name]
             kwargs[f.name] = max(lo, min(hi, getattr(self, f.name)))
         return replace(self, **kwargs)
+
+    def to_vector(self) -> List[float]:
+        return [getattr(self, f.name) for f in fields(self)]
+
+    @classmethod
+    def from_vector(cls, vec) -> "AIParams":
+        kwargs = {f.name: float(v) for f, v in zip(fields(cls), vec)}
+        return cls(**kwargs).clipped()
+
+    @staticmethod
+    def vector_bounds() -> Tuple[List[float], List[float]]:
+        ranges = AIParams.clip_ranges()
+        lo = [ranges[f.name][0] for f in fields(AIParams)]
+        hi = [ranges[f.name][1] for f in fields(AIParams)]
+        return (lo, hi)
 
     def to_dict(self) -> dict:
         return {"version": SCHEMA_VERSION, "params": asdict(self)}

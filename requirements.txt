@@ -1,4 +1,6 @@
 # 推荐使用 Python 3.8 及以上版本
 # CLI 模式仅用标准库
 # Web UI 模式需要 Flask
+# 训练模式需要 cma
 Flask>=3.0
+cma>=3.3

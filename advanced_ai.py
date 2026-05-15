@@ -29,6 +29,7 @@ from range import (
 from ai_params import AIParams
 
 if TYPE_CHECKING:
+    from cfr_lite import CFRCollector
     from opponent_model import OpponentModel
 
 
@@ -39,6 +40,7 @@ class AdvancedPokerAI:
     opponent_model: Optional["OpponentModel"] = None
     seed: Optional[int] = None
     training_mode: bool = False
+    cfr_collector: Optional["CFRCollector"] = None
     rng: random.Random = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -64,6 +66,16 @@ class AdvancedPokerAI:
 
         spr = effective_stack / pot
 
+        decision = self._core_decide(
+            context, equity, opp_range, params, in_position, available, big_blind, spr
+        )
+
+        if self.cfr_collector is not None and self.training_mode:
+            self._record_cfr(context, equity, in_position, decision, opp_range, params)
+
+        return decision
+
+    def _core_decide(self, context, equity, opp_range, params, in_position, available, big_blind, spr):
         if context.street == "preflop":
             decision = self._decide_preflop(
                 context, equity, opp_range, params, in_position, available
@@ -73,7 +85,7 @@ class AdvancedPokerAI:
 
         if (
             "all-in" in available
-            and effective_stack <= big_blind * 8
+            and self._effective_stack(context) <= big_blind * 8
             and equity >= params.short_stack_jam_threshold
         ):
             return ActionDecision("all-in")
@@ -82,7 +94,7 @@ class AdvancedPokerAI:
             spr <= params.spr_commit_threshold
             and equity >= params.value_3x_threshold
             and "all-in" in available
-            and effective_stack <= big_blind * 25
+            and self._effective_stack(context) <= big_blind * 25
         ):
             return ActionDecision("all-in")
 
@@ -93,6 +105,29 @@ class AdvancedPokerAI:
         return self._choose_facing_bet_action(
             context, equity, opp_range, params, in_position, available
         )
+
+    def _record_cfr(self, context, equity, in_position, decision, opp_range, params):
+        from cfr_lite import make_bucket_key, estimate_action_evs
+        pot_odds = context.call_amount / max(1, context.pot + context.call_amount)
+        bucket = make_bucket_key(context.street, equity, pot_odds, in_position)
+        ff = 0.0
+        if context.community_cards:
+            ff = fold_freq_estimate(
+                opp_range, context.community_cards,
+                my_bet_chips=max(1, context.pot // 2),
+                pot_chips=max(1, context.pot),
+                opp_calling_threshold=params.opp_calling_threshold,
+            )
+        action_evs = estimate_action_evs(
+            equity=equity,
+            pot=context.pot,
+            call_amount=context.call_amount,
+            action_targets=dict(context.action_targets),
+            available_actions=list(context.available_actions),
+            fold_freq=ff,
+            big_blind=context.big_blind,
+        )
+        self.cfr_collector.record(bucket, decision.action, action_evs)
 
     def _build_opp_range(self, context: DecisionContext, params: AIParams) -> HandRange:
         known = list(context.hole_cards) + list(context.community_cards)
