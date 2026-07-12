@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 HAND_HISTORY_PATH = os.path.join(DATA_DIR, "hand_history.jsonl")
+SESSION_HISTORY_DIR = os.path.join(DATA_DIR, "sessions")
 OPPONENT_PROFILES_PATH = os.path.join(DATA_DIR, "opponent_profiles.json")
 AI_PARAMS_PATH = os.path.join(DATA_DIR, "ai_params.json")
 
@@ -26,6 +27,7 @@ class HandLog:
     big_blind: int
     actions: List[Tuple[str, int, str, int]]
     community: List[str]
+    player_ids: List[str] = field(default_factory=list)
     hole_cards: Dict[str, List[str]] = field(default_factory=dict)
     payoffs: Dict[str, int] = field(default_factory=dict)
     final_stage: str = "river"
@@ -35,11 +37,21 @@ class HandLog:
 
     @classmethod
     def from_dict(cls, data: dict) -> "HandLog":
+        if "player_ids" not in data:
+            data = dict(data)
+            data["player_ids"] = list(data.get("player_names", []))
         return cls(**data)
 
 
 def ensure_data_dir() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(SESSION_HISTORY_DIR, exist_ok=True)
+
+
+def session_history_path(game_id: str) -> str:
+    ensure_data_dir()
+    safe = "".join(ch for ch in game_id if ch.isalnum() or ch in ("-", "_"))[:64]
+    return os.path.join(SESSION_HISTORY_DIR, f"{safe}.jsonl")
 
 
 def append_hand_log(path: str, log: HandLog) -> None:

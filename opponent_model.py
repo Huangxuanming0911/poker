@@ -87,10 +87,12 @@ class OpponentModel:
 
     def observe(self, log: HandLog, self_name: Optional[str] = None) -> None:
         """Update stats for every player that isn't `self_name`."""
-        for idx, name in enumerate(log.player_names):
-            if name == self_name:
+        identities = log.player_ids or log.player_names
+        for idx, identity in enumerate(identities):
+            display_name = log.player_names[idx] if idx < len(log.player_names) else identity
+            if identity == self_name or display_name == self_name:
                 continue
-            stats = self.stats_for(name)
+            stats = self.stats_for(identity)
             _update_from_log(stats, log, idx)
 
     def save(self) -> None:
@@ -172,6 +174,7 @@ def build_hand_log_from_game(
     payoffs: Dict[str, int],
     final_stage: str,
     hole_cards_known: Optional[Dict[str, List[str]]] = None,
+    player_ids: Optional[List[str]] = None,
 ) -> HandLog:
     """Snapshot the just-completed hand. Note: game.button_index has been advanced
     by play_hand for the next hand, so the caller must pass the button_index that
@@ -181,6 +184,7 @@ def build_hand_log_from_game(
     return HandLog(
         timestamp=_time.time(),
         player_names=[p.name for p in game.players],
+        player_ids=player_ids or [p.name for p in game.players],
         starting_stacks=list(starting_stacks),
         button_index=button_index_at_start,
         small_blind=game.small_blind,

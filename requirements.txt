@@ -4,3 +4,4 @@
 # 训练模式需要 cma
 Flask>=3.0
 cma>=3.3
+gunicorn>=21.2

@@ -33,6 +33,7 @@ from persistence import (
     HAND_HISTORY_PATH,
     OPPONENT_PROFILES_PATH,
     append_hand_log,
+    session_history_path,
 )
 
 SUIT_TO_LETTER = {"♠": "S", "♥": "H", "♦": "D", "♣": "C"}
@@ -98,6 +99,7 @@ class GameSession:
         self.game_id = game_id
         self.mode = mode
         self.names = list(names)
+        self.player_ids = self._build_player_ids(mode, ai_level)
         self.starting_stack = DEFAULT_STARTING_STACK
         self.small_blind = DEFAULT_SMALL_BLIND
         self.big_blind = DEFAULT_BIG_BLIND
@@ -137,6 +139,11 @@ class GameSession:
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+
+    def _build_player_ids(self, mode: str, ai_level: str) -> List[str]:
+        if mode == "pve":
+            return ["human_0", f"ai_{ai_level}"]
+        return ["human_0", "human_1"]
 
     # ------------------------------------------------------------------
     # Public HTTP-facing API
@@ -264,11 +271,13 @@ class GameSession:
             button_index_at_start=self._button_before_hand,
             payoffs=payoffs,
             final_stage=result.get("stage", "river"),
+            player_ids=self.player_ids,
         )
         ai_idx = next(iter(self.ai_players))
-        self.opp_model.observe(log, self_name=self.game.players[ai_idx].name)
+        self.opp_model.observe(log, self_name=self.player_ids[ai_idx])
         try:
             append_hand_log(HAND_HISTORY_PATH, log)
+            append_hand_log(session_history_path(self.game_id), log)
         except OSError:
             pass
 

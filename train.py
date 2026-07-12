@@ -41,6 +41,7 @@ DEFAULT_GENERATIONS = 20
 STARTING_STACK = 5000
 RESET_FLOOR = 500
 OPPONENT_POOL_PATH = os.path.join("data", "opponent_pool.json")
+TRAINING_REPORT_PATH = os.path.join("data", "training_report.json")
 
 
 # ----------------------------------------------------------------------
@@ -143,6 +144,50 @@ def run_match_vs_basic(params: AIParams, n_hands: int, seed: int) -> float:
     return net_a / max(1, hands) / 20
 
 
+def evaluate_vs_basic(
+    params: AIParams,
+    n_hands: int,
+    seeds: int,
+    seed_base: int,
+) -> Dict[str, object]:
+    """Evaluate params on a fixed seed set against BasicPokerAI."""
+    results = []
+    for s in range(seeds):
+        results.append(run_match_vs_basic(params, n_hands, seed=seed_base + s))
+    mean = sum(results) / max(1, len(results))
+    return {
+        "mean_bb_per_hand": mean,
+        "scores": results,
+        "hands": n_hands,
+        "seeds": seeds,
+        "seed_base": seed_base,
+    }
+
+
+def _same_params(a: AIParams, b: AIParams, eps: float = 1e-12) -> bool:
+    return all(abs(x - y) <= eps for x, y in zip(a.to_vector(), b.to_vector()))
+
+
+def write_training_report(path: str, report: Dict[str, object]) -> None:
+    """Persist latest report and a short run history for portfolio/debugging."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    previous_runs = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                previous = json.load(f)
+            previous_runs = list(previous.get("runs", []))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            previous_runs = []
+    previous_runs.append(report)
+    payload = {
+        "latest": report,
+        "runs": previous_runs[-25:],
+    }
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+
 # ----------------------------------------------------------------------
 # Parallel evaluation helper (for multiprocessing)
 # ----------------------------------------------------------------------
@@ -153,7 +198,11 @@ def _eval_candidate(args):
     candidate_vec, opp_vec, n_hands, seed = args
     candidate = AIParams.from_vector(candidate_vec)
     opp = AIParams.from_vector(opp_vec)
-    return run_match(candidate, opp, n_hands, seed, training_mode=True)
+    try:
+        return run_match(candidate, opp, n_hands, seed, training_mode=True)
+    finally:
+        from range import clear_postflop_strength_cache
+        clear_postflop_strength_cache()
 
 
 # ----------------------------------------------------------------------
@@ -166,14 +215,73 @@ def train(
     workers: int,
     out_path: str,
     use_cfr: bool = False,
+    popsize: int = 12,
+    validation_hands: int = 300,
+    validation_seeds: int = 3,
+    min_improvement: float = 0.05,
+    force_save: bool = False,
+    report_path: str = TRAINING_REPORT_PATH,
 ) -> None:
-    parent = AIParams.load_or_default(out_path)
+    loaded_params = AIParams.load_or_default(out_path)
+    default_params = AIParams()
     pool = OpponentPool.load(OPPONENT_POOL_PATH)
+    validation_hands = max(1, validation_hands)
+    validation_seeds = max(1, validation_seeds)
+    candidate_path = out_path + ".candidate"
 
-    x0 = parent.to_vector()
+    print("Safety gate: validating loaded params against default params ...")
+    loaded_eval = evaluate_vs_basic(
+        loaded_params, validation_hands, validation_seeds, seed_base=70000
+    )
+    if os.path.exists(out_path):
+        default_eval = evaluate_vs_basic(
+            default_params, validation_hands, validation_seeds, seed_base=70000
+        )
+    else:
+        default_eval = dict(loaded_eval)
+
+    champion_params = loaded_params
+    champion_label = "loaded"
+    champion_validation = float(loaded_eval["mean_bb_per_hand"])
+    default_validation = float(default_eval["mean_bb_per_hand"])
+
+    if default_validation > champion_validation + min_improvement:
+        champion_params = default_params
+        champion_label = "default"
+        champion_validation = default_validation
+        champion_params.save(out_path)
+        print(
+            f"Safety gate: default beats loaded "
+            f"({default_validation:+.3f} vs {loaded_eval['mean_bb_per_hand']:+.3f}); "
+            f"official params reset to default with backup."
+        )
+
+    report: Dict[str, object] = {
+        "started_at": time.time(),
+        "settings": {
+            "generations": generations,
+            "hands_per_match": n_hands,
+            "workers": workers,
+            "popsize": popsize,
+            "cfr": use_cfr,
+            "validation_hands": validation_hands,
+            "validation_seeds": validation_seeds,
+            "min_improvement": min_improvement,
+            "force_save": force_save,
+            "out_path": out_path,
+        },
+        "baselines": {
+            "loaded": loaded_eval,
+            "default": default_eval,
+            "initial_champion": champion_label,
+        },
+        "generations": [],
+        "accepted": [],
+    }
+
+    x0 = champion_params.to_vector()
     lo, hi = AIParams.vector_bounds()
     sigma0 = 0.08
-    popsize = 12
 
     opts = cma.CMAOptions()
     opts["maxiter"] = generations
@@ -188,6 +296,11 @@ def train(
     print(f"Training: CMA-ES popsize={popsize} generations={generations} "
           f"hands/match={n_hands} workers={workers} cfr={use_cfr}")
     print(f"Opponent pool size: {len(pool)}")
+    print(
+        f"Champion gate: {champion_label} "
+        f"validation={champion_validation:+.3f} bb/hand "
+        f"({validation_seeds} seeds x {validation_hands} hands)"
+    )
     est_seconds_per_gen = popsize * n_hands * 0.04 / max(1, workers)
     est_minutes = est_seconds_per_gen * generations / 60
     print(f"Estimated time: ~{est_minutes:.0f} minutes")
@@ -255,7 +368,22 @@ def train(
             if (gen + 1) % 3 == 0:
                 pool.add(best_params)
 
-            best_params.save(out_path)
+            best_params.save(candidate_path)
+            gate_eval = evaluate_vs_basic(
+                best_params, validation_hands, validation_seeds, seed_base=70000
+            )
+            gate_score = float(gate_eval["mean_bb_per_hand"])
+            accepted = force_save or gate_score > champion_validation + min_improvement
+            if accepted:
+                champion_params = best_params
+                champion_label = f"gen_{gen}"
+                champion_validation = gate_score
+                champion_params.save(out_path)
+                report["accepted"].append({
+                    "generation": gen,
+                    "validation": gate_eval,
+                    "reason": "force_save" if force_save else "improved_champion",
+                })
 
             # Main log line
             fits_str = " ".join(f"{f:+.2f}" for f in sorted(fitnesses, reverse=True)[:5])
@@ -269,6 +397,28 @@ def train(
                   f"[ETA {eta_min:.0f}min]"
                   f"{' +CFR' if cfr_applied else ''}")
             print(f"        top5: [{fits_str}]")
+            print(
+                f"        gate: candidate={gate_score:+.3f}, "
+                f"champion={champion_validation:+.3f} ({champion_label})"
+                f"{' ACCEPTED' if accepted else ''}"
+            )
+
+            report["generations"].append({
+                "generation": gen,
+                "fitness": {
+                    "best": best_this_gen,
+                    "worst": worst_this_gen,
+                    "mean": mean_this_gen,
+                    "top5": sorted(fitnesses, reverse=True)[:5],
+                    "sigma": sigma_now,
+                },
+                "validation": gate_eval,
+                "accepted": accepted,
+                "champion_label": champion_label,
+                "champion_validation": champion_validation,
+                "elapsed_seconds": elapsed,
+            })
+            write_training_report(report_path, report)
 
             # Every 5 gens: regression check + param snapshot
             if (gen + 1) % 5 == 0:
@@ -295,19 +445,37 @@ def train(
     total_time = time.perf_counter() - start_time
     pool.save(OPPONENT_POOL_PATH)
     final_params = AIParams.from_vector(es.result.xbest)
-    final_params.save(out_path)
 
     print(f"\n{'='*60}")
     print(f"Training complete: {gen} generations in {total_time/60:.1f} minutes")
     print(f"Final σ={es.sigma:.4f}, opponent pool size={len(pool)}")
     print(f"\nFinal evaluation (5 seeds × {n_hands} hands vs BasicPokerAI):")
-    results = []
-    for s in range(5):
-        r = run_match_vs_basic(final_params, n_hands, seed=88000 + s)
-        results.append(r)
-        print(f"  seed={s}: {r:+.3f} bb/hand")
-    print(f"  Mean: {sum(results)/5:+.3f} bb/hand")
-    print(f"\nSaved to {out_path}")
+    final_eval = evaluate_vs_basic(final_params, n_hands, seeds=5, seed_base=88000)
+    for s, r in enumerate(final_eval["scores"]):
+        print(f"  candidate seed={s}: {r:+.3f} bb/hand")
+    print(f"  Candidate mean: {final_eval['mean_bb_per_hand']:+.3f} bb/hand")
+
+    if _same_params(final_params, champion_params):
+        champion_eval = final_eval
+    else:
+        print(f"\nSaved champion evaluation (5 seeds x {n_hands} hands vs BasicPokerAI):")
+        champion_eval = evaluate_vs_basic(champion_params, n_hands, seeds=5, seed_base=88000)
+        for s, r in enumerate(champion_eval["scores"]):
+            print(f"  champion seed={s}: {r:+.3f} bb/hand")
+        print(f"  Champion mean: {champion_eval['mean_bb_per_hand']:+.3f} bb/hand")
+
+    report["completed_at"] = time.time()
+    report["duration_seconds"] = total_time
+    report["final_candidate_eval"] = final_eval
+    report["final_champion_eval"] = champion_eval
+    report["final_champion_label"] = champion_label
+    report["saved_path"] = out_path
+    report["candidate_path"] = candidate_path
+    write_training_report(report_path, report)
+
+    print(f"\nOfficial champion saved to {out_path}")
+    print(f"Last raw candidate saved to {candidate_path}")
+    print(f"Training report saved to {report_path}")
     print(f"{'='*60}")
 
 
@@ -336,16 +504,60 @@ def main():
     parser.add_argument("--generations", type=int, default=DEFAULT_GENERATIONS)
     parser.add_argument("--hands", type=int, default=DEFAULT_HANDS)
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2))
+    parser.add_argument(
+        "--lambda",
+        "--popsize",
+        dest="popsize",
+        type=int,
+        default=12,
+        help="Number of candidate parameter sets evaluated per generation",
+    )
     parser.add_argument("--eval-only", action="store_true")
     parser.add_argument("--seeds", type=int, default=5, help="Number of seeds for --eval-only")
     parser.add_argument("--cfr", action="store_true", help="Enable CFR-Lite regret signal")
     parser.add_argument("--out", default=AI_PARAMS_PATH)
+    parser.add_argument(
+        "--validation-hands",
+        type=int,
+        default=300,
+        help="Hands per validation seed for champion gating",
+    )
+    parser.add_argument(
+        "--validation-seeds",
+        type=int,
+        default=3,
+        help="Number of fixed validation seeds for champion gating",
+    )
+    parser.add_argument(
+        "--min-improvement",
+        type=float,
+        default=0.05,
+        help="Required bb/hand gain before a candidate replaces the champion",
+    )
+    parser.add_argument(
+        "--force-save",
+        action="store_true",
+        help="Always save generation winners, bypassing champion gate",
+    )
+    parser.add_argument("--report", default=TRAINING_REPORT_PATH)
     args = parser.parse_args()
 
     if args.eval_only:
         eval_only(args.hands, args.out, args.seeds)
     else:
-        train(args.generations, args.hands, args.workers, args.out, use_cfr=args.cfr)
+        train(
+            args.generations,
+            args.hands,
+            args.workers,
+            args.out,
+            use_cfr=args.cfr,
+            popsize=args.popsize,
+            validation_hands=args.validation_hands,
+            validation_seeds=args.validation_seeds,
+            min_improvement=args.min_improvement,
+            force_save=args.force_save,
+            report_path=args.report,
+        )
 
 
 if __name__ == "__main__":

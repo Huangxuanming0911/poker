@@ -11,6 +11,7 @@ from __future__ import annotations
 import bisect
 import itertools
 import random
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
 
@@ -18,7 +19,9 @@ from engine import Card, create_deck, evaluate_best_hand
 
 HandKey = FrozenSet[Tuple[str, str]]
 
-_postflop_strength_cache: Dict[Tuple[HandKey, Tuple[Tuple[str, str], ...]], float] = {}
+POSTFLOP_STRENGTH_CACHE_MAX = 100_000
+
+_postflop_strength_cache: "OrderedDict[Tuple[HandKey, Tuple[Tuple[str, str], ...]], float]" = OrderedDict()
 _preflop_strength_cache: Dict[HandKey, float] = {}
 
 
@@ -60,6 +63,7 @@ def postflop_strength(hand: HandKey, board: Sequence[Card]) -> float:
     key = (hand, _board_key(board))
     cached = _postflop_strength_cache.get(key)
     if cached is not None:
+        _postflop_strength_cache.move_to_end(key)
         return cached
     a, b = _key_to_cards(hand)
     value = evaluate_best_hand([a, b] + list(board))
@@ -68,7 +72,14 @@ def postflop_strength(hand: HandKey, board: Sequence[Card]) -> float:
     score = category / 8.0 + (kicker_sum / 28.0) * 0.08
     score = min(1.0, score)
     _postflop_strength_cache[key] = score
+    if len(_postflop_strength_cache) > POSTFLOP_STRENGTH_CACHE_MAX:
+        _postflop_strength_cache.popitem(last=False)
     return score
+
+
+def clear_postflop_strength_cache() -> None:
+    """Release per-process postflop cache memory between long training matches."""
+    _postflop_strength_cache.clear()
 
 
 @dataclass
