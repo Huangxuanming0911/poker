@@ -38,6 +38,7 @@ class AdvancedPokerAI:
     name: str
     params: AIParams = field(default_factory=AIParams)
     opponent_model: Optional["OpponentModel"] = None
+    opponent_identity: Optional[str] = None
     seed: Optional[int] = None
     training_mode: bool = False
     cfr_collector: Optional["CFRCollector"] = None
@@ -155,8 +156,9 @@ class AdvancedPokerAI:
                 board_at_action = community_at_street(context.community_cards, street)
                 update_postflop(range_obj, action, board_at_action, street)
 
-        if self.opponent_model is not None and context.opponents:
-            stats = self.opponent_model.stats_for(context.opponents[0].name)
+        profile_key = self._opponent_profile_key(context)
+        if self.opponent_model is not None and profile_key is not None:
+            stats = self.opponent_model.stats_for(profile_key)
             if stats.hands_observed >= 20:
                 if stats.vpip() > 0.7:
                     range_obj.relax(factor=1.4)
@@ -172,9 +174,12 @@ class AdvancedPokerAI:
         return None
 
     def _adjusted_params(self, context: DecisionContext) -> AIParams:
-        if self.opponent_model is None or not context.opponents:
+        if self.opponent_model is None:
             return self.params
-        stats = self.opponent_model.stats_for(context.opponents[0].name)
+        profile_key = self._opponent_profile_key(context)
+        if profile_key is None:
+            return self.params
+        stats = self.opponent_model.stats_for(profile_key)
         if stats.hands_observed < 20:
             return self.params
         p = replace(self.params)
@@ -197,6 +202,13 @@ class AdvancedPokerAI:
                 opp_calling_threshold=max(0.05, p.opp_calling_threshold - 0.03),
             )
         return p.clipped()
+
+    def _opponent_profile_key(self, context: DecisionContext) -> Optional[str]:
+        if self.opponent_identity:
+            return self.opponent_identity
+        if context.opponents:
+            return context.opponents[0].name
+        return None
 
     def _effective_stack(self, context: DecisionContext) -> int:
         if not context.opponents:

@@ -148,17 +148,24 @@ def run_game(online_learn: bool = False) -> None:
     ai_players: dict[int, PokerAI] = {}
     opp_model: Optional[OpponentModel] = None
     learner: Optional[OnlineLearner] = None
+    player_ids: List[str] = []
     if mode == "pve":
         human_name = input("请输入你的名称（默认 玩家1）: ").strip() or "玩家1"
         ai_name = input("请输入 AI 名称（默认 AI）: ").strip() or "AI"
         ai_level_raw = input("请选择 AI 等级：1. 高级（推荐）  2. 基础（默认 1）: ").strip()
         names = [human_name, ai_name]
+        player_ids = ["human_0", "ai_basic" if ai_level_raw in {"2", "basic", "basic-ai"} else "ai_advanced"]
         if ai_level_raw in {"2", "basic", "basic-ai"}:
             ai_players[1] = BasicPokerAI(name=ai_name)
         else:
             params = AIParams.load_or_default(AI_PARAMS_PATH)
             opp_model = OpponentModel(profile_path=OPPONENT_PROFILES_PATH)
-            ai_players[1] = AdvancedPokerAI(name=ai_name, params=params, opponent_model=opp_model)
+            ai_players[1] = AdvancedPokerAI(
+                name=ai_name,
+                params=params,
+                opponent_model=opp_model,
+                opponent_identity=player_ids[0],
+            )
             atexit.register(opp_model.save)
             if online_learn:
                 learner = OnlineLearner(params=params)
@@ -167,6 +174,7 @@ def run_game(online_learn: bool = False) -> None:
         for index in range(2):
             name = input(f"请输入玩家 {index + 1} 名称（默认 玩家{index + 1}）: ").strip() or f"玩家{index + 1}"
             names.append(name)
+        player_ids = ["human_0", "human_1"]
 
     starting_stack = 1000
     game = Game(names, starting_stack=starting_stack, small_blind=10, big_blind=20)
@@ -209,9 +217,10 @@ def run_game(online_learn: bool = False) -> None:
             button_index_at_start=button_before,
             payoffs=payoffs,
             final_stage=result["stage"],
+            player_ids=player_ids,
         )
         if opp_model is not None:
-            opp_model.observe(hand_log, self_name=ai_players[1].name)
+            opp_model.observe(hand_log, self_name=player_ids[1])
         try:
             append_hand_log(HAND_HISTORY_PATH, hand_log)
         except OSError:

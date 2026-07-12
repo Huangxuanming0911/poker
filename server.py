@@ -121,7 +121,10 @@ class GameSession:
                 self.ai_players[1] = BasicPokerAI(name=names[1])
             else:
                 self.ai_players[1] = AdvancedPokerAI(
-                    name=names[1], params=params, opponent_model=self.opp_model
+                    name=names[1],
+                    params=params,
+                    opponent_model=self.opp_model,
+                    opponent_identity=self.player_ids[0],
                 )
 
         self.action_q: Queue = Queue()
