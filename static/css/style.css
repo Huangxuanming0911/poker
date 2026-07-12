@@ -57,6 +57,10 @@ button { font-family: inherit; cursor: pointer; }
   flex: 1; display: flex; align-items: center; justify-content: center;
   padding: 24px;
 }
+.screen[hidden],
+.setup-form[hidden] {
+  display: none !important;
+}
 
 .card-panel {
   background: #1a1f29;
